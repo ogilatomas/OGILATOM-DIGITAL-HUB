@@ -1,0 +1,19 @@
+{
+  "name": "ogilatom-digital-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OGILATOM@ Digital Hub marketplace with orders, business listings, admin dashboard and M-Pesa-ready backend.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "cors": "^2.8.5"
+  }
+}

@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OGILATOM@ Admin</title><style>
+body{font-family:Arial,sans-serif;margin:0;background:#0c1020;color:#f5f7ff}main{max-width:1200px;margin:auto;padding:35px 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px}.card{background:#151b30;border:1px solid #29304b;border-radius:16px;padding:20px}.num{font-size:32px;font-weight:800}
+input,button{padding:12px;border-radius:9px;border:1px solid #39415d;margin:5px}button{cursor:pointer}
+table{width:100%;border-collapse:collapse;margin-top:20px}td,th{padding:10px;border-bottom:1px solid #29304b;text-align:left}
+</style></head><body><main><h1>OGILATOM@ Admin Dashboard</h1>
+<div id="login"><p>Login as admin to manage the platform.</p><input id="email" placeholder="Email" value="admin@ogilatom.local"><input id="pass" type="password" placeholder="Password" value="ChangeMe123!"><button onclick="login()">Login</button></div>
+<div id="dash" style="display:none"><div class="grid" id="stats"></div><h2>Orders</h2><div id="orders"></div><h2>Businesses</h2><div id="businesses"></div></div>
+<script>
+async function api(u,o={}){let r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});let j=await r.json();if(!r.ok)throw new Error(j.error||'Error');return j}
+async function login(){try{await api('/api/login',{method:'POST',body:JSON.stringify({email:email.value,password:pass.value})});document.getElementById('login').style.display='none';dash.style.display='block';load()}catch(e){alert(e.message)}}
+async function load(){let s=await api('/api/admin/summary');stats.innerHTML=Object.entries(s).map(([k,v])=>`<div class="card"><div class="num">${v}</div><div>${k}</div></div>`).join('');
+let os=await api('/api/admin/orders');orders.innerHTML='<table><tr><th>Code</th><th>Service</th><th>Customer</th><th>Amount</th><th>Status</th><th>Payment</th></tr>'+os.map(o=>`<tr><td>${o.order_code}</td><td>${o.service_name||''}</td><td>${o.customer_name}<br>${o.phone}</td><td>KSh ${o.amount}</td><td>${o.status}</td><td>${o.payment_status}</td></tr>`).join('')+'</table>';
+let bs=await api('/api/admin/businesses');businesses.innerHTML='<table><tr><th>Business</th><th>Category</th><th>Status</th><th>Featured</th></tr>'+bs.map(b=>`<tr><td>${b.name}</td><td>${b.category}</td><td>${b.status}</td><td>${b.featured?'Yes':'No'}</td></tr>`).join('')+'</table>'}
+</script></main></body></html>
