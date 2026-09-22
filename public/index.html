@@ -386,22 +386,62 @@ function openOrder(service, price){
   document.getElementById('orderModal').classList.add('open');
 }
 function closeOrder(){document.getElementById('orderModal').classList.remove('open')}
-function submitOrder(e){
+async function submitOrder(e){
   e.preventDefault();
-  const order={
-    id:'OG-'+Date.now().toString().slice(-7),
-    service:selectedService, price:selectedPrice,
-    name:document.getElementById('customerName').value,
-    phone:document.getElementById('customerPhone').value,
-    email:document.getElementById('customerEmail').value,
-    details:document.getElementById('customerDetails').value,
-    payment:document.getElementById('paymentMethod').value,
-    status:'Pending', created:new Date().toLocaleString()
-  };
-  const orders=JSON.parse(localStorage.getItem('ogilatom_orders')||'[]');
-  orders.push(order); localStorage.setItem('ogilatom_orders',JSON.stringify(orders));
-  document.getElementById('orderResult').innerHTML='<div class="feature-band"><strong>Order '+order.id+' received.</strong><p>We will confirm the final quotation and payment instructions. You can also contact us directly on WhatsApp.</p><a class="cta" target="_blank" rel="noopener" href="https://wa.me/254707912352?text='+encodeURIComponent('Hello OGILATOM@, I placed order '+order.id+' for '+order.service+'. My name is '+order.name+'.')+'">Confirm on WhatsApp →</a></div>';
-  e.target.reset(); updateDashboard();
+  const resultBox = document.getElementById('orderResult');
+  const phone = document.getElementById('customerPhone').value;
+  const paymentMethod = document.getElementById('paymentMethod').value;
+
+  try{
+    // Look up the numeric service_id your backend needs, from the service name we already have
+    const services = await fetch('/api/services').then(r=>r.json());
+    const svc = services.find(s=>s.name===selectedService);
+    if(!svc){ resultBox.innerHTML = '<div class="feature-band">Sorry, that service could not be found. Please try again.</div>'; return; }
+
+    const payload = {
+      service_id: svc.id,
+      customer_name: document.getElementById('customerName').value,
+      phone: phone,
+      email: document.getElementById('customerEmail').value,
+      details: document.getElementById('customerDetails').value
+    };
+
+    const orderRes = await fetch('/api/orders',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).then(r=>r.json());
+
+    if(!orderRes.ok){
+      resultBox.innerHTML = '<div class="feature-band">Error: '+(orderRes.error||'Could not place order')+'</div>';
+      return;
+    }
+
+    if(paymentMethod === 'mpesa'){
+      resultBox.innerHTML = '<div class="feature-band"><strong>Order '+orderRes.order_code+' received.</strong><p>Sending M-Pesa prompt to your phone…</p></div>';
+      const stk = await fetch('/api/mpesa/stkpush',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({order_id: orderRes.order_id, phone: phone})
+      }).then(r=>r.json());
+
+      if(stk.ok){
+        resultBox.innerHTML = '<div class="feature-band"><strong>Order '+orderRes.order_code+' received.</strong><p>Check your phone to complete the M-Pesa payment.</p></div>';
+      }else{
+        resultBox.innerHTML = '<div class="feature-band"><strong>Order '+orderRes.order_code+' received,</strong><p>but we could not send the M-Pesa prompt automatically ('+(stk.error||'unknown error')+'). We will contact you to complete payment.</p></div>';
+      }
+    }else{
+      resultBox.innerHTML = '<div class="feature-band"><strong>Order '+orderRes.order_code+' received.</strong><p>We will confirm via WhatsApp to complete your order.</p></div>';
+    }
+
+    e.target.reset();
+    const orders=JSON.parse(localStorage.getItem('ogilatom_orders')||'[]');
+    orders.push({id:orderRes.order_code, service:selectedService, price:selectedPrice, status:'Pending', created:new Date().toLocaleString()});
+    localStorage.setItem('ogilatom_orders',JSON.stringify(orders));
+    updateDashboard();
+  }catch(err){
+    resultBox.innerHTML = '<div class="feature-band">Something went wrong: '+err.message+'</div>';
+  }
 }
 function updateDashboard(){
   const orders=JSON.parse(localStorage.getItem('ogilatom_orders')||'[]');
