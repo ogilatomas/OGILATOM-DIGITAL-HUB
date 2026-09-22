@@ -117,6 +117,15 @@ app.post("/api/login",(req,res)=>{
 app.post("/api/logout",(req,res)=>req.session.destroy(()=>res.json({ok:true})));
 app.get("/api/me",(req,res)=>res.json({user:req.session.user||null}));
 
+async function notifyWhatsApp(message){
+  try{
+    if(!process.env.CALLMEBOT_PHONE || !process.env.CALLMEBOT_APIKEY) return;
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${process.env.CALLMEBOT_PHONE}&text=${encodeURIComponent(message)}&apikey=${process.env.CALLMEBOT_APIKEY}`;
+    await fetch(url);
+  }catch(e){
+    console.error("WhatsApp notify failed:", e);
+  }
+}
 app.post("/api/orders",(req,res)=>{
  const {service_id,customer_name,phone,email,details,user_id}=req.body||{};
  const service=db.prepare("SELECT * FROM services WHERE id=? AND active=1").get(service_id);
@@ -125,7 +134,8 @@ app.post("/api/orders",(req,res)=>{
  const orderCode=code();
  const info=db.prepare(`INSERT INTO orders(order_code,user_id,service_id,customer_name,phone,email,details,amount)
  VALUES(?,?,?,?,?,?,?,?)`).run(orderCode,user_id||req.session.user?.id||null,service.id,customer_name,phone,email||"",details||"",service.price);
- res.json({ok:true,order_id:info.lastInsertRowid,order_code:orderCode,amount:service.price,status:"pending",payment_status:"unpaid"});
+ notifyWhatsApp(`🛎️ New OGILATOM order!\nOrder: ${orderCode}\nService: ${service.name}\nCustomer: ${customer_name}\nPhone: ${phone}\nAmount: KSh ${service.price}`);
+  res.json({ok:true,order_id:info.lastInsertRowid,order_code:orderCode,amount:service.price,status:"pending",payment_status:"unpaid"});
 });
 
 app.get("/api/orders/mine",auth,(req,res)=>{
