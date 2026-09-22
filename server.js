@@ -170,22 +170,109 @@ app.patch("/api/admin/businesses/:id",admin,(req,res)=>{
  res.json({ok:true});
 });
 
-/* M-Pesa-ready endpoint.
-   Actual Daraja STK Push is intentionally guarded by credentials on the server. */
-app.post("/api/mpesa/stkpush",auth,async(req,res)=>{
- const {order_id,phone}=req.body||{};
- const order=db.prepare("SELECT * FROM orders WHERE id=?").get(order_id);
- if(!order) return res.status(404).json({error:"Order not found"});
- if(!process.env.MPESA_CONSUMER_KEY || !process.env.MPESA_CONSUMER_SECRET || !process.env.MPESA_SHORTCODE || !process.env.MPESA_PASSKEY)
-   return res.status(503).json({error:"M-Pesa is not configured yet. Add Daraja credentials to the server .env file."});
- /* Production implementation should obtain OAuth token, request STK Push,
-    and verify the callback signature/result before marking an order paid. */
- res.status(501).json({error:"Daraja credentials detected, but the live STK Push adapter still needs your production callback URL and account configuration."});
+/* ---------- M-Pesa (Daraja) helpers ---------- */
+const MPESA_BASE = (process.env.MPESA_ENV === "production")
+  ? "https://api.safaricom.co.ke"
+  : "https://sandbox.safaricom.co.ke";
+
+async function getMpesaToken(){
+  const auth = Buffer.from(`${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`).toString("base64");
+  const r = await fetch(`${MPESA_BASE}/oauth/v1/generate?grant_type=client_credentials`, {
+    headers: { Authorization: `Basic ${auth}` }
+  });
+  if(!r.ok) throw new Error("Failed to get M-Pesa access token");
+  const data = await r.json();
+  return data.access_token;
+}
+
+function mpesaTimestamp(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+function normalizeMsisdn(phone){
+  let p = String(phone).replace(/\D/g,"");
+  if(p.startsWith("0")) p = "254"+p.slice(1);
+  if(p.startsWith("254") && p.length===12) return p;
+  throw new Error("Invalid phone number format");
+}
+
+app.post("/api/mpesa/stkpush", auth, async (req,res)=>{
+  try{
+    const {order_id, phone} = req.body||{};
+    const order = db.prepare("SELECT * FROM orders WHERE id=?").get(order_id);
+    if(!order) return res.status(404).json({error:"Order not found"});
+    if(!process.env.MPESA_CONSUMER_KEY || !process.env.MPESA_CONSUMER_SECRET || !process.env.MPESA_SHORTCODE || !process.env.MPESA_PASSKEY)
+      return res.status(503).json({error:"M-Pesa is not configured yet. Add credentials to your .env file."});
+
+    const msisdn = normalizeMsisdn(phone || order.phone);
+    const timestamp = mpesaTimestamp();
+    const password = Buffer.from(`${process.env.MPESA_SHORTCODE}${process.env.MPESA_PASSKEY}${timestamp}`).toString("base64");
+    const token = await getMpesaToken();
+
+    const payload = {
+      BusinessShortCode: process.env.MPESA_SHORTCODE,
+      Password: password,
+      Timestamp: timestamp,
+      TransactionType: "CustomerPayBillOnline",
+      Amount: Math.max(1, Math.round(order.amount)),
+      PartyA: msisdn,
+      PartyB: process.env.MPESA_SHORTCODE,
+      PhoneNumber: msisdn,
+      CallBackURL: process.env.MPESA_CALLBACK_URL,
+      AccountReference: order.order_code,
+      TransactionDesc: "OGILATOM order "+order.order_code
+    };
+
+    const r = await fetch(`${MPESA_BASE}/mpesa/stkpush/v1/processrequest`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json();
+
+    if(data.ResponseCode !== "0"){
+      return res.status(502).json({error: data.errorMessage || data.ResponseDescription || "STK push failed"});
+    }
+
+    db.prepare("INSERT INTO payments(order_id,provider,amount,status,raw_json) VALUES(?,?,?,?,?)")
+      .run(order.id, "mpesa", payload.Amount, "pending", JSON.stringify(data));
+    db.prepare("UPDATE orders SET status=? WHERE id=?").run("stk_sent", order.id);
+
+    res.json({ok:true, message:"Check your phone to complete payment.", checkout_request_id: data.CheckoutRequestID});
+  }catch(e){
+    console.error("STK push error:", e);
+    res.status(500).json({error: e.message || "Something went wrong initiating the payment"});
+  }
 });
+
 app.post("/api/mpesa/callback",(req,res)=>{
- console.log("M-Pesa callback received",JSON.stringify(req.body));
- /* Validate Safaricom callback result, update payment + order here. */
- res.json({ResultCode:0,ResultDesc:"Accepted"});
+  console.log("M-Pesa callback received", JSON.stringify(req.body));
+  try{
+    const stk = req.body?.Body?.stkCallback;
+    if(!stk) return res.json({ResultCode:0, ResultDesc:"Accepted"});
+
+    const checkoutId = stk.CheckoutRequestID;
+    const payment = db.prepare("SELECT * FROM payments WHERE raw_json LIKE ? ORDER BY id DESC").get(`%${checkoutId}%`);
+    if(!payment){
+      console.warn("No matching payment for CheckoutRequestID", checkoutId);
+      return res.json({ResultCode:0, ResultDesc:"Accepted"});
+    }
+
+    if(stk.ResultCode === 0){
+      const items = stk.CallbackMetadata?.Item || [];
+      const receipt = items.find(i=>i.Name==="MpesaReceiptNumber")?.Value || null;
+      db.prepare("UPDATE payments SET status=?, receipt=? WHERE id=?").run("paid", receipt, payment.id);
+      db.prepare("UPDATE orders SET status=?, payment_status=? WHERE id=?").run("paid","paid",payment.order_id);
+    }else{
+      db.prepare("UPDATE payments SET status=? WHERE id=?").run("failed", payment.id);
+      db.prepare("UPDATE orders SET status=?, payment_status=? WHERE id=?").run("payment_failed","failed",payment.order_id);
+    }
+  }catch(e){
+    console.error("Callback processing error:", e);
+  }
+  res.json({ResultCode:0, ResultDesc:"Accepted"});
 });
 
 app.get("*",(req,res)=>res.sendFile(require("path").join(__dirname,"public","index.html")));
