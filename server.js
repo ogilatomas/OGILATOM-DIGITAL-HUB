@@ -198,7 +198,7 @@ function normalizeMsisdn(phone){
   throw new Error("Invalid phone number format");
 }
 
-app.post("/api/mpesa/stkpush", auth, async (req,res)=>{
+app.post("/api/mpesa/stkpush", async (req,res)=>{
   try{
     const {order_id, phone} = req.body||{};
     const order = db.prepare("SELECT * FROM orders WHERE id=?").get(order_id);
