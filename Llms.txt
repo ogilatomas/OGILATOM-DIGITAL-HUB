@@ -1,0 +1,23 @@
+# OGILATOM@ Digital Hub
+
+> A digital services marketplace based in Kenya, offering ICT support, digital design, web development, social media management, business promotion, and digital assistance services to individuals, students, creators, and businesses. Payments are supported via M-Pesa.
+
+OGILATOM@ Digital Hub connects customers with affordable, practical digital services priced in Kenyan Shillings (KSh). Customers browse services, place an order with their contact details, and pay via M-Pesa.
+
+## Services
+
+- ICT Support — computer/software setup, troubleshooting, network support. From KSh 300.
+- Digital Design — posters, flyers, logos, business cards, social graphics. From KSh 300.
+- Web Presence — web pages, landing pages, website setup. From KSh 3,500.
+- Social Media — social media setup, page/profile optimization, content management. From KSh 500.
+- Business Promotion — business listings, featured placement, social media promotion. From KSh 500.
+- Digital Assistance — CVs, online applications, document formatting, PDF services. From KSh 100.
+
+## Key pages
+
+- [Homepage](https://ogilatom-digital-hub.onrender.com/): overview of all services, pricing, and ordering.
+
+## Contact
+
+- WhatsApp: 0707 912 352
+- Email: gilazybog82@gmail.com
